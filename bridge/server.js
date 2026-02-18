@@ -144,9 +144,11 @@ app.use(express.json());
 
 // Simple bearer-token middleware
 function auth(req, res, next) {
+  // Accept token from Authorization header OR ?token= query param (for browser access)
   const header = req.headers["authorization"] || "";
-  const token = header.replace(/^Bearer\s+/i, "").trim();
-  if (token !== API_TOKEN) {
+  const headerToken = header.replace(/^Bearer\s+/i, "").trim();
+  const queryToken = (req.query.token || "").trim();
+  if (headerToken !== API_TOKEN && queryToken !== API_TOKEN) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   next();

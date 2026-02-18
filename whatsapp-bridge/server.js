@@ -188,9 +188,13 @@ const app = express();
 app.use(express.json());
 
 function auth(req, res, next) {
+  // Accept token from Authorization header OR ?token= query param (for browser access)
   const header = req.headers["authorization"] || "";
-  const token = header.replace(/^Bearer\s+/i, "").trim();
-  if (token !== API_TOKEN) return res.status(401).json({ error: "Unauthorized" });
+  const headerToken = header.replace(/^Bearer\s+/i, "").trim();
+  const queryToken = (req.query.token || "").trim();
+  if (headerToken !== API_TOKEN && queryToken !== API_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   next();
 }
 

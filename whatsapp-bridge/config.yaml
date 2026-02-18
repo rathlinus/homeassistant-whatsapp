@@ -1,7 +1,7 @@
 ---
 name: "WhatsApp Bridge"
 description: "Runs a whatsapp-web.js bridge server so Home Assistant can send and receive WhatsApp messages."
-version: "1.0.2"
+version: "1.0.3"
 slug: "whatsapp_bridge"
 init: false
 
