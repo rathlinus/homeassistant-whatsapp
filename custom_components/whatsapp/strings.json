@@ -3,21 +3,31 @@
     "step": {
       "user": {
         "title": "Connect to WhatsApp Bridge",
-        "description": "Enter the connection details for your whatsapp-web.js bridge server.",
+        "description": "Enter the connection details for your whatsapp-web.js bridge server.\n\n⚠️ If using the HA add-on, set the host to your HA machine's IP (e.g. `192.168.1.10`) or `homeassistant.local` — **not** `localhost`.",
         "data": {
-          "host": "Bridge host (IP or hostname)",
+          "host": "Bridge host (your HA IP, e.g. 192.168.1.10)",
+          "port": "Bridge port",
+          "token": "API token"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure WhatsApp Bridge",
+        "description": "Update the connection details. If using the HA add-on, use your HA machine's IP or `homeassistant.local` — not `localhost`.",
+        "data": {
+          "host": "Bridge host (your HA IP, e.g. 192.168.1.10)",
           "port": "Bridge port",
           "token": "API token"
         }
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to the bridge. Make sure the Node.js bridge server is running.",
+      "cannot_connect": "Cannot connect to the bridge. Check the host/port and make sure the add-on is running.",
       "invalid_token": "Invalid API token.",
       "unknown": "Unexpected error. Check your Home Assistant logs."
     },
     "abort": {
-      "already_configured": "This bridge is already configured."
+      "already_configured": "This bridge is already configured.",
+      "reconfigure_successful": "Configuration updated successfully."
     }
   }
 }

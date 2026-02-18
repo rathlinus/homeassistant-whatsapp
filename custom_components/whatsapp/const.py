@@ -8,7 +8,7 @@ CONF_PORT = "port"
 CONF_TOKEN = "token"
 
 # Defaults
-DEFAULT_HOST = "localhost"
+DEFAULT_HOST = "homeassistant.local"
 DEFAULT_PORT = 3000
 
 # Data keys stored in hass.data
