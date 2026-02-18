@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to WhatsApp Bridge",
+        "description": "Enter the connection details for your whatsapp-web.js bridge server.",
+        "data": {
+          "host": "Bridge host (IP or hostname)",
+          "port": "Bridge port",
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the bridge. Make sure the Node.js bridge server is running.",
+      "invalid_token": "Invalid API token.",
+      "unknown": "Unexpected error. Check your Home Assistant logs."
+    },
+    "abort": {
+      "already_configured": "This bridge is already configured."
+    }
+  }
+}

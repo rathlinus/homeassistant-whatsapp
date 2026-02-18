@@ -1,0 +1,9 @@
+node_modules/
+bridge/node_modules/
+bridge/.wwebjs_auth/
+bridge/.env
+.wwebjs_cache/
+*.log
+__pycache__/
+*.pyc
+.DS_Store
