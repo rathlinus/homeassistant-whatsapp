@@ -2,7 +2,7 @@ ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest
 FROM $BUILD_FROM
 
 # HA base images are Alpine Linux – use apk, not apt-get.
-# Install Node.js (not pre-installed) + Chromium + minimal Chromium runtime deps.
+# Install Node.js (not pre-installed) + Chromium + minimal runtime deps.
 RUN apk add --no-cache \
       nodejs \
       npm \
@@ -15,14 +15,21 @@ RUN apk add --no-cache \
       harfbuzz \
       ttf-freefont
 
-# Prevent Puppeteer from trying to download its own Chrome bundle
+# Locate the real Chromium binary and create a stable symlink at /usr/local/bin/chromium-wr
+# This survives any Alpine package naming inconsistency.
+RUN CHROMIUM_BIN=$(which chromium-browser 2>/dev/null || which chromium 2>/dev/null) && \
+    echo "Found Chromium at: ${CHROMIUM_BIN}" && \
+    ln -sf "${CHROMIUM_BIN}" /usr/local/bin/chromium-wr
+
+# Bake the path into the image – Puppeteer reads this at startup
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_SKIP_DOWNLOAD=true
-# run.sh detects the actual binary path at startup so no hardcoded path here
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chromium-wr
+ENV CHROME_BIN=/usr/local/bin/chromium-wr
 
-# Node app
 WORKDIR /app
 COPY package.json ./
+COPY puppeteer.config.cjs ./
 RUN npm install --omit=dev
 
 COPY server.js ./
