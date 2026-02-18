@@ -1,5 +1,6 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest
-FROM $BUILD_FROM
+# Hardcoded to aarch64 (Raspberry Pi / Apple Silicon HA installs).
+# The Supervisor passes BUILD_FROM empty when build.yaml is used, so we bypass it entirely.
+FROM ghcr.io/home-assistant/aarch64-base:latest
 
 # HA base images are Alpine Linux – use apk, not apt-get.
 # Install Node.js (not pre-installed) + Chromium + minimal runtime deps.
