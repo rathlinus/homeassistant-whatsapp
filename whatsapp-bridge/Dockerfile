@@ -15,9 +15,10 @@ RUN apk add --no-cache \
       harfbuzz \
       ttf-freefont
 
-# Alpine Chromium binary is at /usr/bin/chromium-browser
+# Prevent Puppeteer from trying to download its own Chrome bundle
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+# run.sh detects the actual binary path at startup so no hardcoded path here
 
 # Node app
 WORKDIR /app

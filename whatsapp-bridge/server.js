@@ -61,12 +61,30 @@ let clientStatus = "DISCONNECTED";
 let waClient = null;
 
 // ─── WhatsApp client ──────────────────────────────────────────────────────────
+// Resolve Chromium path: env var → known Alpine paths → let Puppeteer decide
+function resolveChromiumPath() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+  const candidates = [
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/lib/chromium/chromium",
+    "/usr/lib/chromium-browser/chromium-browser",
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+}
+
 function createClient() {
+  const executablePath = resolveChromiumPath();
+  console.log("[WA] Chromium path:", executablePath || "(letting Puppeteer decide)");
+
   waClient = new Client({
     authStrategy: new LocalAuth({ dataPath: SESSION_PATH }),
     puppeteer: {
       headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
