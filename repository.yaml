@@ -1,0 +1,6 @@
+---
+# This file marks this GitHub repository as a Home Assistant Add-on repository.
+# Add it in HA: Settings → Add-ons → ⋮ → Repositories → paste the GitHub URL.
+name: WhatsApp for Home Assistant
+url: https://github.com/rathlinus/homeassistant-whatsapp
+maintainer: rathlinus

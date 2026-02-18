@@ -1,0 +1,44 @@
+---
+name: "WhatsApp Bridge"
+description: "Runs a whatsapp-web.js bridge server so Home Assistant can send and receive WhatsApp messages."
+version: "1.0.0"
+slug: "whatsapp_bridge"
+init: false
+
+# Supported HA architectures
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+
+startup: services
+boot: auto
+
+# Add-on options (configured via HA UI)
+options:
+  api_token: "change_me_to_a_random_secret"
+  port: 3000
+  log_level: "info"
+
+schema:
+  api_token: str
+  port: int
+  log_level: list(trace|debug|info|warning|error|fatal)
+
+# Expose port so the HA Python integration can connect
+ports:
+  3000/tcp: 3000
+ports_description:
+  3000/tcp: "WhatsApp Bridge REST + WebSocket API"
+
+# Persistent storage for the WhatsApp session
+map:
+  - data:rw
+
+# Needs host network access to reach the outside (for Puppeteer / Chromium)
+host_network: false
+
+# Allow longer startup time for Chromium to launch
+timeout: 120

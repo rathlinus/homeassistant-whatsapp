@@ -1,8 +1,49 @@
-# WhatsApp for Home Assistant (HACS)
+# WhatsApp for Home Assistant (HACS + Add-on)
 
 Send and receive WhatsApp messages directly from Home Assistant using [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js).
 
 > ⚠️ **Disclaimer:** This integration uses an unofficial WhatsApp API. Use at your own risk. WhatsApp may block accounts that use unofficial clients. Not affiliated with WhatsApp / Meta.
+
+---
+
+## ⚡ Easiest install – Home Assistant Add-on (recommended)
+
+> Requires **Home Assistant OS** or **Supervised** (i.e. you have the Add-ons panel).
+
+### 1 – Add this repository to HA
+
+1. Go to **Settings → Add-ons → Add-on Store**
+2. Click the ⋮ menu (top right) → **Repositories**
+3. Paste: `https://github.com/rathlinus/homeassistant-whatsapp`
+4. Click **Add** → **Close**
+
+### 2 – Install & configure the add-on
+
+1. Find **WhatsApp Bridge** in the store and click **Install**
+2. Go to the **Configuration** tab and set `api_token` to a long random secret
+3. Click **Save** then **Start**
+
+### 3 – Scan the QR code (one time)
+
+1. Open the **Log** tab – wait for `[WA] QR code ready`
+2. Open `http://<HA-IP>:3000/api/qr` in your browser  
+   (add header `Authorization: Bearer YOUR_TOKEN` – use the ModHeader browser extension or the curl command below)
+
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" http://<HA-IP>:3000/api/qr
+```
+
+3. Scan with WhatsApp → **Linked Devices → Link a device**
+4. Log shows `[WA] Client ready.` ✅ — session is saved, no re-scan needed
+
+### 4 – Install & configure the HA integration
+
+1. Install via HACS (see section below) or copy `custom_components/whatsapp/` to your HA config
+2. Restart Home Assistant
+3. **Settings → Devices & Services → Add Integration → WhatsApp**
+   - Host: `localhost` (add-on and HA are on the same machine)
+   - Port: `3000`
+   - Token: your `api_token` from step 2
 
 ---
 
