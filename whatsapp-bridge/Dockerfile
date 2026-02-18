@@ -1,34 +1,23 @@
-ARG BUILD_FROM=node:20-slim
+ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:latest
 FROM $BUILD_FROM
 
-# Install Chromium + helper tools
-RUN apt-get update && \
-    apt-get install -y \
+# HA base images are Alpine Linux – use apk, not apt-get.
+# Install Node.js (not pre-installed) + Chromium + minimal Chromium runtime deps.
+RUN apk add --no-cache \
+      nodejs \
+      npm \
       chromium \
       bash \
       jq \
       ca-certificates \
-      fonts-liberation \
-      libatk-bridge2.0-0 \
-      libatk1.0-0 \
-      libcups2 \
-      libdrm2 \
-      libgbm1 \
-      libnspr4 \
-      libnss3 \
-      libxcomposite1 \
-      libxdamage1 \
-      libxfixes3 \
-      libxrandr2 \
-      libxss1 \
-      libxtst6 \
-      xdg-utils \
-      --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
+      nss \
+      freetype \
+      harfbuzz \
+      ttf-freefont
 
-# Tell Puppeteer / whatsapp-web.js to use system Chromium
+# Alpine Chromium binary is at /usr/bin/chromium-browser
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Node app
 WORKDIR /app
