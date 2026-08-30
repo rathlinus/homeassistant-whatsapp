@@ -182,7 +182,12 @@ function createClient() {
   });
 
   waClient.on("message_ack", (msg, ack) => {
-    broadcast({ event: "message_ack", data: { message_id: msg.id._serialized, ack } });
+    // Same story as sendMessage(): the message object can come back without a
+    // usable id. An uncaught throw in here would take the whole bridge down.
+    broadcast({
+      event: "message_ack",
+      data: { message_id: msg?.id?._serialized ?? null, ack },
+    });
   });
 
   waClient.on("change_state", (state) => {
