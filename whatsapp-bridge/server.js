@@ -68,6 +68,7 @@ let currentQrPng = null; // Buffer with the raw PNG (for /api/qr.png)
 let qrUpdatedAt = null; // ISO timestamp of the last QR refresh
 let clientStatus = "DISCONNECTED";
 let waClient = null;
+let initAttempts = 0; // consecutive failed Chromium launches
 
 function clearQr() {
   currentQrDataUrl = null;
@@ -100,21 +101,26 @@ function createClient() {
     puppeteer: {
       headless: true,
       executablePath,
+      // NOTE: no --single-process / --no-zygote. Recent Chromium builds crash
+      // immediately with those ("Target closed" during Target.setDiscoverTargets),
+      // which left the bridge stuck at DISCONNECTED with no QR code.
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--single-process",
         "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--disable-accelerated-2d-canvas",
+        "--disable-extensions",
+        "--no-first-run",
+        "--mute-audio",
       ],
     },
   });
 
   waClient.on("qr", async (qr) => {
     clientStatus = "QR_READY";
+    initAttempts = 0;
     try {
       currentQrPng = await qrcode.toBuffer(qr, { width: 512, margin: 2 });
       currentQrDataUrl = "data:image/png;base64," + currentQrPng.toString("base64");
@@ -145,6 +151,7 @@ function createClient() {
 
   waClient.on("ready", () => {
     clientStatus = "READY";
+    initAttempts = 0;
     clearQr();
     broadcast({ event: "ready", data: { info: waClient.info } });
     console.log("[WA] Client ready. WhatsApp is connected.");
@@ -183,9 +190,18 @@ function createClient() {
   });
 
   clientStatus = "INITIALIZING";
-  waClient.initialize().catch((err) => {
-    console.error("[WA] initialize() error:", err.message);
+  waClient.initialize().catch(async (err) => {
+    // Chromium can fail to come up (crash, OOM, missing libs). Retry with
+    // backoff instead of sitting at DISCONNECTED until someone restarts us.
     clientStatus = "DISCONNECTED";
+    initAttempts += 1;
+    const delay = Math.min(60000, 10000 * initAttempts);
+    console.error("[WA] initialize() error:", err.message);
+    console.error("[WA] Chromium failed to start (attempt " + initAttempts + ") – retrying in " + delay / 1000 + "s.");
+    try {
+      await waClient.destroy();
+    } catch (_) {}
+    setTimeout(createClient, delay);
   });
 }
 
