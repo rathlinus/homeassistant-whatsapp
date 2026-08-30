@@ -368,8 +368,20 @@ async function handleSend(req, res) {
     } else {
       sentMsg = await waClient.sendMessage(chatId, message);
     }
+    // Current WhatsApp Web builds make sendMessage() resolve to undefined even
+    // though the message goes out (confirmed by the message_create / ack
+    // events). Never let a missing return value turn a delivered message into
+    // an error - just report the id as unknown.
+    const messageId = sentMsg?.id?._serialized ?? null;
     console.log(`[WA] → ${chatId}: ${message}`);
-    res.json({ success: true, message_id: sentMsg.id._serialized, timestamp: sentMsg.timestamp });
+    if (!messageId) {
+      console.log("[WA] (sendMessage returned no message object – id unknown)");
+    }
+    res.json({
+      success: true,
+      message_id: messageId,
+      timestamp: sentMsg?.timestamp ?? null,
+    });
   } catch (err) {
     // whatsapp-web.js errors often surface as a single minified letter, so log
     // everything we have – the stack is the only way to tell them apart.
@@ -408,7 +420,10 @@ async function handleChats(_req, res) {
       }))
     );
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const detail = err && err.message ? err.message : String(err);
+    console.error("[WA] getChats failed:", detail);
+    if (err && err.stack) console.error(err.stack);
+    res.status(500).json({ error: "Could not list chats: " + detail });
   }
 }
 
