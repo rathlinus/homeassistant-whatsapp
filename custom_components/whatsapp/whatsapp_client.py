@@ -16,7 +16,7 @@ from websockets.exceptions import ConnectionClosedError, WebSocketException
 
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, EVENT_MESSAGE_RECEIVED
+from .const import DOMAIN, EVENT_MESSAGE_RECEIVED, EVENT_QR_READY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +84,19 @@ class WhatsAppBridgeClient:
     async def async_get_status(self) -> dict:
         """Return the current bridge + WhatsApp status."""
         return await self.async_check_connection()
+
+    async def async_get_qr_png(self) -> bytes | None:
+        """Return the current pairing QR code as PNG bytes, or None if linked."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{self._base_url}/api/qr.png",
+                headers=self._headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 404:
+                    return None
+                resp.raise_for_status()
+                return await resp.read()
 
     async def async_get_chats(self) -> list[dict]:
         """Return recent chats."""
@@ -185,8 +198,15 @@ class WhatsAppBridgeClient:
             self._hass.bus.async_fire(f"{DOMAIN}_disconnected", data)
 
         elif event_type == "qr":
-            # Fire an event so automations / dashboards can react
-            self._hass.bus.async_fire(f"{DOMAIN}_qr_ready", {"qr_data_url": data.get("qr_data_url")})
+            # Fire an event so the image entity, automations and dashboards can react
+            self.status = "QR_READY"
+            self._hass.bus.async_fire(
+                EVENT_QR_READY,
+                {
+                    "qr_data_url": data.get("qr_data_url"),
+                    "updated_at": data.get("updated_at"),
+                },
+            )
 
         elif event_type == "message":
             # Fire on the HA event bus – automations can trigger on this

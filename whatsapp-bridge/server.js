@@ -5,13 +5,18 @@
  *   1. /data/options.json  (when running as an HA add-on)
  *   2. .env file           (standalone / development)
  *
- * REST endpoints  (all require  Authorization: Bearer <api_token>)
+ * REST endpoints  (all require  Authorization: Bearer <api_token>  or  ?token=)
  *   GET  /api/status        – connection status
  *   GET  /api/qr            – HTML page with QR code
+ *   GET  /api/qr.png        – raw PNG of the current QR (used by the HA image entity)
+ *   GET  /api/qr.json       – { status, qr_data_url, updated_at }
  *   POST /api/pairing-code  – { "phone": "+1234567890" } → 8-digit code
  *   POST /api/send          – { "to", "message", "media_url?", "media_filename?" }
  *   GET  /api/chats         – recent chats
  *   POST /api/logout        – disconnect
+ *
+ * Ingress (port 8099, no token – Home Assistant authenticates the user):
+ *   GET  /                  – web UI with the QR code, status and pairing code
  *
  * WebSocket  ws://<host>:<port>/ws?token=<api_token>
  *   Streams JSON events: message, ready, qr, authenticated, disconnected, …
@@ -44,6 +49,8 @@ if (fs.existsSync(HA_OPTIONS)) {
 }
 
 const PORT = parseInt(cfg.port || "3000", 10);
+// Ingress always uses a fixed internal port – it is never published on the host.
+const INGRESS_PORT = parseInt(process.env.INGRESS_PORT || "8099", 10);
 const API_TOKEN = cfg.api_token || "change_me_to_a_random_secret";
 // Session lives in /data when running as add-on (persistent across restarts)
 const SESSION_PATH = fs.existsSync("/data") ? "/data/wwebjs_auth" : "./.wwebjs_auth";
@@ -56,9 +63,17 @@ const qrcode = require("qrcode");
 const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 
 // ─── State ────────────────────────────────────────────────────────────────────
-let currentQrDataUrl = null;
+let currentQrDataUrl = null; // data:image/png;base64,… (WS event + legacy HTML page)
+let currentQrPng = null; // Buffer with the raw PNG (for /api/qr.png)
+let qrUpdatedAt = null; // ISO timestamp of the last QR refresh
 let clientStatus = "DISCONNECTED";
 let waClient = null;
+
+function clearQr() {
+  currentQrDataUrl = null;
+  currentQrPng = null;
+  qrUpdatedAt = null;
+}
 
 // ─── WhatsApp client ──────────────────────────────────────────────────────────
 // Resolve Chromium path: env var → known Alpine paths → let Puppeteer decide
@@ -100,14 +115,24 @@ function createClient() {
 
   waClient.on("qr", async (qr) => {
     clientStatus = "QR_READY";
-    currentQrDataUrl = await qrcode.toDataURL(qr);
-    broadcast({ event: "qr", data: { qr_data_url: currentQrDataUrl } });
-    console.log("[WA] QR code ready – open http://localhost:" + PORT + "/api/qr");
+    try {
+      currentQrPng = await qrcode.toBuffer(qr, { width: 512, margin: 2 });
+      currentQrDataUrl = "data:image/png;base64," + currentQrPng.toString("base64");
+      qrUpdatedAt = new Date().toISOString();
+    } catch (err) {
+      console.error("[WA] Failed to render QR:", err.message);
+      return;
+    }
+    broadcast({
+      event: "qr",
+      data: { qr_data_url: currentQrDataUrl, updated_at: qrUpdatedAt },
+    });
+    console.log('[WA] QR code ready – open the add-on "Open Web UI" button to scan it.');
   });
 
   waClient.on("authenticated", () => {
     clientStatus = "AUTHENTICATED";
-    currentQrDataUrl = null;
+    clearQr();
     broadcast({ event: "authenticated" });
     console.log("[WA] Authenticated.");
   });
@@ -120,12 +145,14 @@ function createClient() {
 
   waClient.on("ready", () => {
     clientStatus = "READY";
+    clearQr();
     broadcast({ event: "ready", data: { info: waClient.info } });
     console.log("[WA] Client ready. WhatsApp is connected.");
   });
 
   waClient.on("disconnected", (reason) => {
     clientStatus = "DISCONNECTED";
+    clearQr();
     broadcast({ event: "disconnected", data: { reason } });
     console.warn("[WA] Disconnected:", reason);
     setTimeout(() => {
@@ -183,10 +210,7 @@ async function buildMessagePayload(msg) {
   };
 }
 
-// ─── Express app ─────────────────────────────────────────────────────────────
-const app = express();
-app.use(express.json());
-
+// ─── Route handlers (shared by the API server and the Ingress server) ─────────
 function auth(req, res, next) {
   // Accept token from Authorization header OR ?token= query param (for browser access)
   const header = req.headers["authorization"] || "";
@@ -198,16 +222,37 @@ function auth(req, res, next) {
   next();
 }
 
-// GET /api/status
-app.get("/api/status", auth, (_req, res) => {
+const noAuth = (_req, _res, next) => next();
+
+function handleStatus(_req, res) {
+  res.set("Cache-Control", "no-store");
   res.json({
     status: clientStatus,
     info: clientStatus === "READY" && waClient?.info ? waClient.info : null,
+    has_qr: Boolean(currentQrPng),
+    qr_updated_at: qrUpdatedAt,
   });
-});
+}
 
-// GET /api/qr  – renders the QR as a self-refreshing HTML page
-app.get("/api/qr", auth, (_req, res) => {
+function handleQrJson(_req, res) {
+  res.set("Cache-Control", "no-store");
+  res.json({
+    status: clientStatus,
+    qr_data_url: currentQrDataUrl,
+    updated_at: qrUpdatedAt,
+  });
+}
+
+function handleQrPng(_req, res) {
+  if (!currentQrPng) {
+    return res.status(404).json({ error: "No QR code available. Status: " + clientStatus });
+  }
+  res.set("Content-Type", "image/png");
+  res.set("Cache-Control", "no-store");
+  res.send(currentQrPng);
+}
+
+function handleQrPage(_req, res) {
   if (clientStatus === "READY" || clientStatus === "AUTHENTICATED") {
     return res.send(`<!DOCTYPE html><html><body style="background:#111;color:#25D366;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
       <h2>✅ Already authenticated – no QR needed.</h2></body></html>`);
@@ -229,22 +274,21 @@ app.get("/api/qr", auth, (_req, res) => {
         <p style="color:#aaa;font-family:sans-serif;font-size:13px;margin-top:12px">Code refreshes automatically. Re-open this page if it expires.</p>
       </div>
     </body></html>`);
-});
+}
 
-// POST /api/pairing-code  { "phone": "+1234567890" }
-app.post("/api/pairing-code", auth, async (req, res) => {
+async function handlePairingCode(req, res) {
   const { phone } = req.body || {};
   if (!phone) return res.status(400).json({ error: "phone is required" });
+  if (!waClient) return res.status(503).json({ error: "WhatsApp client not started yet" });
   try {
     const code = await waClient.requestPairingCode(phone.replace(/\D/g, ""));
     res.json({ code });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}
 
-// POST /api/send
-app.post("/api/send", auth, async (req, res) => {
+async function handleSend(req, res) {
   if (clientStatus !== "READY") {
     return res.status(503).json({ error: "WhatsApp not ready. Status: " + clientStatus });
   }
@@ -270,20 +314,19 @@ app.post("/api/send", auth, async (req, res) => {
     console.error("[WA] Send error:", err.message);
     res.status(500).json({ error: err.message });
   }
-});
+}
 
-// POST /api/logout
-app.post("/api/logout", auth, async (_req, res) => {
+async function handleLogout(_req, res) {
+  if (!waClient) return res.status(503).json({ error: "WhatsApp client not started yet" });
   try {
     await waClient.logout();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}
 
-// GET /api/chats
-app.get("/api/chats", auth, async (_req, res) => {
+async function handleChats(_req, res) {
   if (clientStatus !== "READY") return res.status(503).json({ error: "Not ready" });
   try {
     const chats = await waClient.getChats();
@@ -300,15 +343,30 @@ app.get("/api/chats", auth, async (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}
 
-// ─── HTTP + WebSocket server ──────────────────────────────────────────────────
+function registerApiRoutes(expressApp, guard) {
+  expressApp.get("/api/status", guard, handleStatus);
+  expressApp.get("/api/qr", guard, handleQrPage);
+  expressApp.get("/api/qr.png", guard, handleQrPng);
+  expressApp.get("/api/qr.json", guard, handleQrJson);
+  expressApp.post("/api/pairing-code", guard, handlePairingCode);
+  expressApp.post("/api/send", guard, handleSend);
+  expressApp.post("/api/logout", guard, handleLogout);
+  expressApp.get("/api/chats", guard, handleChats);
+}
+
+// ─── API server (token protected, published on the host) ─────────────────────
+const app = express();
+app.use(express.json());
+registerApiRoutes(app, auth);
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 const wsClients = new Set();
 
 wss.on("connection", (ws, req) => {
-  const url = new URL(req.url, `http://localhost`);
+  const url = new URL(req.url, "http://localhost");
   if (url.searchParams.get("token") !== API_TOKEN) {
     ws.close(4001, "Unauthorized");
     return;
@@ -327,11 +385,175 @@ function broadcast(payload) {
   }
 }
 
+// ─── Ingress server (no token – Home Assistant authenticates the user) ───────
+// Only reachable through the Supervisor, never published on the host network.
+const ingressApp = express();
+ingressApp.use(express.json());
+registerApiRoutes(ingressApp, noAuth);
+ingressApp.get("/", (req, res) => res.send(renderIngressPage(req)));
+
+function renderIngressPage(req) {
+  // The Supervisor tells us under which path the UI is served, e.g.
+  // /api/hassio_ingress/<token>. Build absolute URLs from it so the page works
+  // whether or not the browser kept the trailing slash.
+  const base = String(req.headers["x-ingress-path"] || "").replace(/\/$/, "");
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WhatsApp Bridge</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f5f6f7; --card:#fff; --fg:#212121; --muted:#6b6f76; --line:#e3e5e8; --accent:#25D366; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111418; --card:#1c2025; --fg:#e8eaed; --muted:#9aa0a6; --line:#2c3238; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
+  h1 { font-size:20px; margin:0 0 8px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  p { margin:0 0 8px; color:var(--muted); font-size:14px; line-height:1.5; }
+  .badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px;
+           font-weight:600; letter-spacing:.02em; background:var(--line); color:var(--fg); }
+  .badge.ok { background:var(--accent); color:#04120a; }
+  .badge.warn { background:#f5a623; color:#2a1b00; }
+  .badge.err { background:#e5534b; color:#fff; }
+  .qr { display:flex; align-items:center; justify-content:center; min-height:300px; text-align:center; }
+  .qr img { width:280px; height:280px; background:#fff; padding:10px; border-radius:12px; }
+  ol { margin:12px 0 0 18px; padding:0; color:var(--muted); font-size:14px; line-height:1.7; }
+  input, button { font:inherit; }
+  input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line);
+          background:var(--bg); color:var(--fg); margin-bottom:10px; }
+  button { padding:10px 16px; border-radius:8px; border:0; background:var(--accent);
+           color:#04120a; font-weight:600; cursor:pointer; }
+  button.secondary { background:var(--line); color:var(--fg); }
+  button:disabled { opacity:.5; cursor:default; }
+  .code { font-size:28px; font-weight:700; letter-spacing:.15em; margin-top:10px; color:var(--fg); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card">
+    <h1>WhatsApp Bridge</h1>
+    <p>Status: <span id="status" class="badge">…</span></p>
+  </div>
+
+  <div class="card" id="qr-card">
+    <h2>Scan to link your phone</h2>
+    <div class="qr" id="qr-box"><p>Waiting for the QR code…</p></div>
+    <ol>
+      <li>Open WhatsApp on your phone</li>
+      <li>Go to <b>Settings &rarr; Linked devices</b></li>
+      <li>Tap <b>Link a device</b> and scan the code above</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>No camera? Link with a pairing code</h2>
+    <p>Enter your phone number in international format, then type the code into
+       WhatsApp &rarr; Linked devices &rarr; <b>Link with phone number</b>.</p>
+    <input id="phone" type="tel" placeholder="+49151234567" autocomplete="tel">
+    <div class="row">
+      <button id="pair-btn">Request pairing code</button>
+      <button id="logout-btn" class="secondary">Log out / re-pair</button>
+    </div>
+    <div class="code" id="pair-code"></div>
+  </div>
+
+</div>
+<script>
+var BASE = ${JSON.stringify(base)};
+function url(p) { return BASE + p; }
+var statusEl = document.getElementById("status");
+var qrBox = document.getElementById("qr-box");
+var qrCard = document.getElementById("qr-card");
+var lastQrAt = null;
+
+function setStatus(s) {
+  statusEl.textContent = s;
+  statusEl.className = "badge" +
+    (s === "READY" ? " ok" :
+     s === "QR_READY" ? " warn" :
+     (s === "AUTH_FAILURE" || s === "DISCONNECTED" || s === "UNREACHABLE") ? " err" : "");
+}
+
+async function poll() {
+  try {
+    var r = await fetch(url("/api/status"), { cache: "no-store" });
+    var d = await r.json();
+    setStatus(d.status);
+
+    if (d.status === "READY" || d.status === "AUTHENTICATED") {
+      qrCard.style.display = "none";
+      lastQrAt = null;
+    } else {
+      qrCard.style.display = "";
+      if (d.has_qr && d.qr_updated_at !== lastQrAt) {
+        lastQrAt = d.qr_updated_at;
+        var img = new Image();
+        img.alt = "WhatsApp QR code";
+        img.src = url("/api/qr.png") + "?t=" + encodeURIComponent(lastQrAt);
+        qrBox.innerHTML = "";
+        qrBox.appendChild(img);
+      } else if (!d.has_qr) {
+        lastQrAt = null;
+        qrBox.innerHTML = "<p>Waiting for the QR code… this can take a minute after starting.</p>";
+      }
+    }
+  } catch (e) {
+    setStatus("UNREACHABLE");
+  }
+}
+
+document.getElementById("pair-btn").addEventListener("click", async function (ev) {
+  var btn = ev.currentTarget;
+  var out = document.getElementById("pair-code");
+  var phone = document.getElementById("phone").value.trim();
+  if (!phone) { out.textContent = "Enter a phone number first."; return; }
+  btn.disabled = true;
+  out.textContent = "Requesting…";
+  try {
+    var r = await fetch(url("/api/pairing-code"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: phone }),
+    });
+    var d = await r.json();
+    out.textContent = d.code || ("Error: " + (d.error || "unknown"));
+  } catch (e) {
+    out.textContent = "Error: " + e.message;
+  }
+  btn.disabled = false;
+});
+
+document.getElementById("logout-btn").addEventListener("click", async function (ev) {
+  if (!confirm("Log out of WhatsApp? You will have to link your phone again.")) return;
+  var btn = ev.currentTarget;
+  btn.disabled = true;
+  try { await fetch(url("/api/logout"), { method: "POST" }); } catch (e) {}
+  setTimeout(function () { btn.disabled = false; }, 3000);
+});
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>`;
+}
+
+// ─── Start ────────────────────────────────────────────────────────────────────
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[Bridge] Listening on http://0.0.0.0:${PORT}`);
   console.log(`[Bridge] Session stored in: ${SESSION_PATH}`);
-  console.log(`[Bridge] QR page: http://localhost:${PORT}/api/qr  (needs auth header)`);
+  console.log(`[Bridge] QR page: http://localhost:${PORT}/api/qr  (needs auth header or ?token=)`);
   createClient();
+});
+
+ingressApp.listen(INGRESS_PORT, "0.0.0.0", () => {
+  console.log(`[Bridge] Ingress UI on port ${INGRESS_PORT} – use the add-on's "Open Web UI" button.`);
 });
 
 process.on("SIGTERM", async () => {

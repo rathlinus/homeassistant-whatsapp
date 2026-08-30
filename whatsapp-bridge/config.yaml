@@ -1,7 +1,7 @@
 ---
 name: "WhatsApp Bridge"
 description: "Runs a whatsapp-web.js bridge server so Home Assistant can send and receive WhatsApp messages."
-version: "1.0.7"
+version: "1.1.0"
 slug: "whatsapp_bridge"
 init: false
 
@@ -26,6 +26,13 @@ schema:
   api_token: str
   port: int
   log_level: list(trace|debug|info|warning|error|fatal)
+
+# Web UI inside Home Assistant (Ingress) – shows the pairing QR code.
+# The Supervisor authenticates the user, so no API token is needed here.
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:whatsapp"
+panel_title: "WhatsApp"
 
 # Expose port so the HA Python integration can connect
 ports:

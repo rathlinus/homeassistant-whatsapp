@@ -23,7 +23,7 @@ from .whatsapp_client import WhatsAppBridgeClient
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "image"]
 
 SEND_MESSAGE_SCHEMA = vol.Schema(
     {

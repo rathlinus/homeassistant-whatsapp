@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_CLIENT, DOMAIN, EVENT_MESSAGE_RECEIVED, SENSOR_STATUS
+from .const import DATA_CLIENT, DOMAIN, EVENT_MESSAGE_RECEIVED, EVENT_QR_READY, SENSOR_STATUS
 from .whatsapp_client import WhatsAppBridgeClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,6 +63,7 @@ class WhatsAppStatusSensor(SensorEntity):
             f"{DOMAIN}_authenticated",
             f"{DOMAIN}_disconnected",
             f"{DOMAIN}_auth_failure",
+            EVENT_QR_READY,
         ):
             self.async_on_remove(
                 self.hass.bus.async_listen(event_name, _on_status_change)

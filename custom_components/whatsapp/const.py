@@ -17,6 +17,7 @@ DATA_UNSUB = "unsub"
 
 # Event names fired on the HA event bus
 EVENT_MESSAGE_RECEIVED = f"{DOMAIN}_message_received"
+EVENT_QR_READY = f"{DOMAIN}_qr_ready"
 
 # Sensor unique-id suffixes
 SENSOR_STATUS = "status"

@@ -25,16 +25,20 @@ Send and receive WhatsApp messages directly from Home Assistant using [whatsapp-
 
 ### 3 – Scan the QR code (one time)
 
-1. Open the **Log** tab – wait for `[WA] QR code ready`
-2. Open `http://<HA-IP>:3000/api/qr` in your browser  
-   (add header `Authorization: Bearer YOUR_TOKEN` – use the ModHeader browser extension or the curl command below)
+1. Click **Open Web UI** on the add-on page (or the **WhatsApp** entry in the sidebar)
+2. Wait a few seconds – the QR code shows up and refreshes itself automatically
+3. Scan it with WhatsApp → **Settings → Linked devices → Link a device**
+4. The status badge turns green (`READY`) ✅ — the session is saved, no re-scan needed
 
-```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" http://<HA-IP>:3000/api/qr
-```
+The Web UI goes through Home Assistant Ingress, so there is no token to paste and
+no port to open – it works remotely (Nabu Casa / reverse proxy) too.
 
-3. Scan with WhatsApp → **Linked Devices → Link a device**
-4. Log shows `[WA] Client ready.` ✅ — session is saved, no re-scan needed
+No camera on hand? Type your phone number into the same page and click
+**Request pairing code**, then enter the code in WhatsApp → **Linked devices →
+Link with phone number**.
+
+Once the integration below is set up you can also scan the code from a dashboard:
+add a **Picture entity** card for `image.whatsapp_qr_code`.
 
 ### 4 – Install & configure the HA integration
 
@@ -160,6 +164,7 @@ Go to **Settings → Devices & Services → Add Integration → WhatsApp**.
 | Entity | Description |
 |--------|-------------|
 | `sensor.whatsapp_status` | Current connection status (`READY`, `QR_READY`, `DISCONNECTED`, …) |
+| `image.whatsapp_qr_code` | The pairing QR code while the bridge waits to be linked (unavailable once linked) |
 | `sensor.whatsapp_last_message` | Body of the last received message; attributes include `from`, `contact_name`, `timestamp`, `is_group`, `has_media` |
 
 ---
@@ -268,6 +273,8 @@ All endpoints require `Authorization: Bearer <token>`.
 |--------|------|-------------|
 | `GET`  | `/api/status` | Connection status + client info |
 | `GET`  | `/api/qr` | HTML page showing the QR code to scan |
+| `GET`  | `/api/qr.png` | Raw PNG of the current QR code (404 when already linked) |
+| `GET`  | `/api/qr.json` | `{ status, qr_data_url, updated_at }` |
 | `POST` | `/api/pairing-code` | `{ "phone": "+1234567890" }` → 8-digit code |
 | `POST` | `/api/send` | `{ "to", "message", "media_url?", "media_filename?" }` |
 | `GET`  | `/api/chats` | List of 50 most recent chats |
@@ -281,7 +288,8 @@ All endpoints require `Authorization: Bearer <token>`.
 | Symptom | Fix |
 |---------|-----|
 | `Cannot connect to the bridge` | Make sure `npm start` is running and the host/port are correct |
-| Status stuck at `QR_READY` | Open `/api/qr` and scan the code with your phone |
+| Status stuck at `QR_READY` | Open the add-on **Web UI** (or the `image.whatsapp_qr_code` entity) and scan the code |
+| QR code never appears | Give Chromium up to a minute to start; check the add-on log for `[WA] QR code ready` |
 | Messages not received in HA | Check the WebSocket connection – look for `[WA] WebSocket connected` in HA logs |
 | Bridge crashes on startup | Ensure Node.js ≥ 18 and Chromium / puppeteer dependencies are installed |
 | Docker: puppeteer can't find Chrome | Set `PUPPETEER_EXECUTABLE_PATH` in the container environment |
