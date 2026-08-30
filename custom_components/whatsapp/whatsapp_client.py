@@ -15,6 +15,7 @@ import websockets
 from websockets.exceptions import ConnectionClosedError, WebSocketException
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN, EVENT_MESSAGE_RECEIVED, EVENT_QR_READY
 
@@ -69,17 +70,28 @@ class WhatsAppBridgeClient:
         if media_filename:
             payload["media_filename"] = media_filename
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self._base_url}/api/send",
-                json=payload,
-                headers=self._headers,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                data = await resp.json()
-                if not resp.ok:
-                    raise RuntimeError(data.get("error", "Unknown send error"))
-                return data
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self._base_url}/api/send",
+                    json=payload,
+                    headers=self._headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    data = await resp.json()
+                    if not resp.ok:
+                        # HomeAssistantError, so the reason shows up in the UI
+                        # instead of a bare "Unknown error".
+                        raise HomeAssistantError(
+                            data.get("error", f"Bridge returned HTTP {resp.status}")
+                        )
+                    return data
+        except aiohttp.ClientError as err:
+            raise HomeAssistantError(
+                f"Cannot reach the WhatsApp bridge at {self._host}:{self._port} - {err}"
+            ) from err
+        except asyncio.TimeoutError as err:
+            raise HomeAssistantError("The WhatsApp bridge did not answer in time") from err
 
     async def async_get_status(self) -> dict:
         """Return the current bridge + WhatsApp status."""

@@ -304,14 +304,59 @@ async function handlePairingCode(req, res) {
   }
 }
 
+/**
+ * Turn whatever the user typed into a chat id WhatsApp actually accepts.
+ *
+ * WhatsApp wants the bare international number: 491639090700@c.us. The usual
+ * ways of writing that number – +49…, 0049…, spaces, dashes – all have to go.
+ * A leading 00 in particular used to survive the digit filter and produce
+ * 00491639090700@c.us, which fails deep inside whatsapp-web.js with an
+ * unhelpful minified error.
+ */
+async function resolveChatId(to) {
+  const raw = String(to).trim();
+  if (raw.includes("@")) return raw; // already a chat id (contact or @g.us group)
+
+  let digits = raw.replace(/\D/g, "");
+  digits = digits.replace(/^00+/, ""); // 0049… / +49… → 49…
+
+  if (!digits) {
+    throw new Error(`"${raw}" contains no digits – use an international number like +491639090700`);
+  }
+  if (digits.startsWith("0")) {
+    throw new Error(
+      `"${raw}" looks like a national number. Use the international form ` +
+        `(e.g. +49… or 0049… instead of a leading 0).`
+    );
+  }
+
+  // Ask WhatsApp for the canonical id. This also tells us whether the number
+  // has an account at all, instead of failing later with a cryptic error.
+  const numberId = await waClient.getNumberId(digits);
+  if (!numberId) {
+    throw new Error(`${digits} is not registered on WhatsApp`);
+  }
+  return numberId._serialized;
+}
+
 async function handleSend(req, res) {
   if (clientStatus !== "READY") {
     return res.status(503).json({ error: "WhatsApp not ready. Status: " + clientStatus });
   }
   const { to, message, media_url, media_filename } = req.body || {};
   if (!to) return res.status(400).json({ error: "'to' is required" });
+  if (!media_url && !message) {
+    return res.status(400).json({ error: "'message' is required" });
+  }
 
-  const chatId = to.includes("@") ? to : `${to.replace(/\D/g, "")}@c.us`;
+  let chatId;
+  try {
+    chatId = await resolveChatId(to);
+  } catch (err) {
+    console.error("[WA] Bad recipient:", err.message);
+    return res.status(400).json({ error: err.message });
+  }
+
   try {
     let sentMsg;
     if (media_url) {
@@ -321,14 +366,20 @@ async function handleSend(req, res) {
       });
       sentMsg = await waClient.sendMessage(chatId, media, { caption: message || undefined });
     } else {
-      if (!message) return res.status(400).json({ error: "'message' is required" });
       sentMsg = await waClient.sendMessage(chatId, message);
     }
     console.log(`[WA] → ${chatId}: ${message}`);
     res.json({ success: true, message_id: sentMsg.id._serialized, timestamp: sentMsg.timestamp });
   } catch (err) {
-    console.error("[WA] Send error:", err.message);
-    res.status(500).json({ error: err.message });
+    // whatsapp-web.js errors often surface as a single minified letter, so log
+    // everything we have – the stack is the only way to tell them apart.
+    const detail = err && err.message ? err.message : String(err);
+    console.error(`[WA] Send to ${chatId} failed: ${detail}`);
+    if (err && err.stack) console.error(err.stack);
+    res.status(500).json({
+      error: `Sending to ${chatId} failed: ${detail}`,
+      chat_id: chatId,
+    });
   }
 }
 

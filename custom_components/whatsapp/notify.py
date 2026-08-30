@@ -11,6 +11,7 @@ from homeassistant.components.notify import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import DATA_CLIENT, DOMAIN
 from .whatsapp_client import WhatsAppBridgeClient
@@ -70,6 +71,7 @@ class WhatsAppNotificationService(BaseNotificationService):
         media_url: str | None = extra.get("media_url")
         media_filename: str | None = extra.get("media_filename")
 
+        failures: list[str] = []
         for target in targets:
             try:
                 await self._client.async_send_message(
@@ -81,3 +83,9 @@ class WhatsAppNotificationService(BaseNotificationService):
                 _LOGGER.debug("[WA notify] Message sent to %s", target)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("[WA notify] Failed to send to %s: %s", target, err)
+                failures.append(f"{target}: {err}")
+
+        # Keep going through every target, but do not report success when a
+        # message was silently dropped.
+        if failures:
+            raise HomeAssistantError("WhatsApp send failed - " + "; ".join(failures))
